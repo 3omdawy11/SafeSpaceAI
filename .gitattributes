@@ -1,0 +1,9 @@
+data/splits/train/language_train.csv filter=lfs diff=lfs merge=lfs -text
+data/processed/language_identification_cleaned.csv filter=lfs diff=lfs merge=lfs -text
+models/emotion_classifier/emotion_classifier_best_model.pt filter=lfs diff=lfs merge=lfs -text
+data/raw/mental_health_books/*.pdf filter=lfs diff=lfs merge=lfs -text
+models/emotion_classifier/tokenizer.pkl filter=lfs diff=lfs merge=lfs -text
+**/*.pdf filter=lfs diff=lfs merge=lfs -text
+**/*.pkl filter=lfs diff=lfs merge=lfs -text
+**/*.csv filter=lfs diff=lfs merge=lfs -text
+**/*.pt filter=lfs diff=lfs merge=lfs -text
