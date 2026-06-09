@@ -42,3 +42,5 @@ qdrant-client
 pyyaml
 
 langid
+
+wandb
