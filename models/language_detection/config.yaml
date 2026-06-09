@@ -1,0 +1,94 @@
+model:
+  type: LogisticRegression
+  C: 0.1
+  max_iter: 1000
+  solver: lbfgs
+  multi_class: multinomial
+  class_weight: null
+  random_state: 42
+vectorizer:
+  type: TfidfVectorizer
+  max_features: 50000
+  ngram_range:
+  - 1
+  - 2
+  min_df: 2
+  max_df: 0.95
+  sublinear_tf: true
+  analyzer: char_wb
+languages:
+- ar
+- bg
+- de
+- el
+- en
+- es
+- fr
+- hi
+- it
+- ja
+- nl
+- pl
+- pt
+- ru
+- sw
+- th
+- tr
+- ur
+- vi
+- zh
+language_names:
+  ar: Arabic
+  bg: Bulgarian
+  de: German
+  el: Greek
+  en: English
+  es: Spanish
+  fr: French
+  hi: Hindi
+  it: Italian
+  ja: Japanese
+  nl: Dutch
+  pl: Polish
+  pt: Portuguese
+  ru: Russian
+  sw: Swahili
+  th: Thai
+  tr: Turkish
+  ur: Urdu
+  vi: Vietnamese
+  zh: Chinese
+paths:
+  vectorizer: models/language_detection/vectorizer.pkl
+  model: models/language_detection/model.pkl
+  config: models/language_detection/config.yaml
+training:
+  C_values_tried:
+  - 0.1
+  - 0.5
+  - 1.0
+  - 5.0
+  - 10.0
+  feature_importance_top_n: 15
+  test_accuracy: 1.0
+  languages_trained:
+  - ar
+  - bg
+  - de
+  - el
+  - en
+  - es
+  - fr
+  - hi
+  - it
+  - ja
+  - nl
+  - pl
+  - pt
+  - ru
+  - sw
+  - th
+  - tr
+  - ur
+  - vi
+  - zh
