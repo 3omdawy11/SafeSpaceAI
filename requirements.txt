@@ -26,8 +26,6 @@ fasttext-wheel
 matplotlib
 seaborn
 
-# pyproject.toml 
--e .
 
 # Utilities
 python-dotenv
