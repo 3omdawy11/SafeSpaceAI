@@ -12,7 +12,7 @@ sentence-transformers
 datasets
 pandas
 numpy
-scikit-learn
+scikit-learn==1.6.1
 ipykernel
 
 # NLP & Text Processing
