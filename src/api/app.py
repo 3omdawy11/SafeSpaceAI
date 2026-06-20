@@ -49,6 +49,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "https://moemad07-safespace-ai-frontend.hf.space",
+        "https://duospace-safespace-ai-frontend.hf.space",
         "http://localhost:8080",
         "http://127.0.0.1:8080",
     ],
@@ -59,3 +60,4 @@ app.add_middleware(
 
 app.include_router(chat.router,   prefix="/v1", tags=["Chat"])
 app.include_router(health.router, prefix="/v1", tags=["System Health"])
+
