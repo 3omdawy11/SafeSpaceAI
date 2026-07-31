@@ -22,10 +22,20 @@ Usage
 
 from __future__ import annotations
 import json, logging, os, re
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class NERResult:
+    """Structured view of an extract() dict, for callers that prefer attribute access."""
+    symptoms: list[str] = field(default_factory=list)
+    triggers: list[str] = field(default_factory=list)
+    duration: Optional[str] = None
+    severity: str = "medium"
 
 # ── Mental health vocabulary for regex fallback ───────────────────────────────
 _SYMPTOMS = [

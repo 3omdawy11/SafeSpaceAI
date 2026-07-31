@@ -1,1 +1,1 @@
-from .ner_extractor import NERExtractor
+from .ner_extractor import NERExtractor, NERResult

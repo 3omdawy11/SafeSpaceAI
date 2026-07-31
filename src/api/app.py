@@ -6,11 +6,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.intent_classifier.intent_classifier import IntentClassifier
-from src.language_detector.language_detector import LanguageDetector
-from src.emotion_classifier import EmotionClassifier
 from src.language_translator import Translator
 from src.ner_extractor import NERExtractor
 from src.utils import QueryOptimizer, Embedder
+from src import config
 
 from src.api.routes import chat, health
 
@@ -19,8 +18,10 @@ load_dotenv()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("Loading NLP models into memory...")
-    app.state.lang_detector      = LanguageDetector()
-    app.state.emotion_classifier = EmotionClassifier()
+    print(f"  Emotion classifier backend  : {config.emotion_classifier_backend()}")
+    print(f"  Language classifier backend : {config.language_classifier_backend()}")
+    app.state.lang_detector      = config.build_language_detector()
+    app.state.emotion_classifier = config.build_emotion_classifier()
     app.state.intent_classifier  = IntentClassifier()
     app.state.translator         = Translator(groq_api_key=os.environ["GROQ_API_KEY"])
     app.state.ner_extractor      = NERExtractor()

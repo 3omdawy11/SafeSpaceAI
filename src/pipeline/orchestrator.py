@@ -133,8 +133,13 @@ class Orchestrator:
         self._hybrid_search = None
         self._hybrid_chunks = None
 
+        from src import config
         from src.utils.conversation_manager import ConversationManager
-        self.conversation = ConversationManager(max_turns=10)
+        self.conversation = ConversationManager(
+            max_turns=10,
+            summarizer=config.build_memory_summarizer(),
+            memory_window=3,
+        )
 
         self._greeting_idx = 0
 
@@ -142,14 +147,14 @@ class Orchestrator:
 
     def _get_lang_detector(self):
         if self._lang_detector is None:
-            from src.language_detector import LanguageDetector
-            self._lang_detector = LanguageDetector()
+            from src import config
+            self._lang_detector = config.build_language_detector()
         return self._lang_detector
 
     def _get_emotion_clf(self):
         if self._emotion_clf is None:
-            from src.emotion_classifier import EmotionClassifier
-            self._emotion_clf = EmotionClassifier()
+            from src import config
+            self._emotion_clf = config.build_emotion_classifier()
         return self._emotion_clf
 
     def _get_ner(self):

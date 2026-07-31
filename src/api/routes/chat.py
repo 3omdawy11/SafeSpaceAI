@@ -16,8 +16,9 @@ from src.api.dependencies import (
 from src.pipeline.safety_checks import SafetyChecker
 from src.utils.conversation_manager import ConversationManager
 from src.utils.vector_db import VectorDBManager
+from src import config
 from functools import lru_cache
-
+from src.ner_extractor import NERResult
 router = APIRouter()
 
 # ── Tone map (mirrors orchestrator) ───────────────────────────────────────────
@@ -99,7 +100,11 @@ def get_safety_checker() -> SafetyChecker:
 
 @lru_cache(maxsize=1)
 def get_conversation_manager() -> ConversationManager:
-    return ConversationManager(max_turns=10)
+    return ConversationManager(
+        max_turns=10,
+        summarizer=config.build_memory_summarizer(),
+        memory_window=3,
+    )
 
 
 @lru_cache(maxsize=1)
@@ -445,7 +450,7 @@ async def process_chat_message(
     if detected_lang != "en":
         response = translator.to_lang(response, detected_lang)
 
-    ner = ner_result or {}
+    ner = ner_result.__dict__ if ner_result else {}
 
     import random
 

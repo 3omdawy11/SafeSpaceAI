@@ -38,9 +38,19 @@ class ConversationManager:
     ----------
     max_turns : maximum turns to keep (older ones are dropped).
                 Keeps the system prompt lean for LLM calls.
+    summarizer : optional MemorySummarizer. When provided, the last
+                 `memory_window` turns are summarized via LLM after every
+                 assistant turn, and the result is folded into
+                 get_context_for_prompt().
+    memory_window : number of most recent turns to summarize (default 3).
     """
 
-    def __init__(self, max_turns: int = 10) -> None:
+    def __init__(
+        self,
+        max_turns: int = 10,
+        summarizer=None,
+        memory_window: int = 3,
+    ) -> None:
         self.max_turns   = max_turns
         self._turns:     list[Turn] = []
         # Accumulated clinical context — grows throughout the session
@@ -50,6 +60,10 @@ class ConversationManager:
         self._suggestions: list[str] = []
         self._emotions:  list[str] = []
         self._turn_count = 0          # total including dropped turns
+
+        self._summarizer = summarizer
+        self._memory_window = memory_window
+        self._memory_summary = ""
 
     # ── Adding turns ─────────────────────────────────────────────────────────
 
@@ -113,6 +127,15 @@ class ConversationManager:
                 if s not in self._suggestions:
                     self._suggestions.append(s)
 
+        # Refresh the rolling LLM memory summary after each assistant turn
+        # (i.e. once a full user/assistant exchange has landed).
+        if role == "assistant" and self._summarizer is not None:
+            try:
+                recent = self.get_recent_history(self._memory_window)
+                self._memory_summary = self._summarizer.summarize(recent)
+            except Exception:
+                pass
+
     # ── Context retrieval ─────────────────────────────────────────────────────
 
     def get_context_for_prompt(self, max_chars: int = 600) -> str:
@@ -125,6 +148,8 @@ class ConversationManager:
             Topics discussed: sleep, panic attacks.
         """
         parts = []
+        if self._memory_summary:
+            parts.append(f"Recent conversation summary: {self._memory_summary}")
         if self._symptoms:
             parts.append(f"Symptoms mentioned: {', '.join(self._symptoms[:6])}")
         if self._triggers:
@@ -183,6 +208,10 @@ class ConversationManager:
             "narrative":           narrative,
         }
 
+    def get_memory_summary(self) -> str:
+        """Return the current rolling LLM summary of the last `memory_window` turns."""
+        return self._memory_summary
+
     def get_accumulated_context(self) -> dict:
         """Return raw accumulated context dict (used by orchestrator metadata)."""
         return {
@@ -199,7 +228,11 @@ class ConversationManager:
 
     def reset(self) -> None:
         """Clear the session (start fresh)."""
-        self.__init__(max_turns=self.max_turns)
+        self.__init__(
+            max_turns=self.max_turns,
+            summarizer=self._summarizer,
+            memory_window=self._memory_window,
+        )
 
     @property
     def turn_count(self) -> int:

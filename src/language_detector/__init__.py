@@ -1,1 +1,2 @@
 from .language_detector import LanguageDetector
+from .llm_language_detector import LLMLanguageDetector
