@@ -1,13 +1,4 @@
-﻿---
-title: SafeSpace AI Backend
-emoji: 🧠
-colorFrom: blue
-colorTo: green
-sdk: docker
-pinned: false
----
-
-# Mental Health Support Chatbot with RAG
+﻿# Mental Health Support Chatbot with RAG
 
 A chatbot trained on professional mental health counseling data and our own knowledge base (PDFs). Uses retrieval-augmented generation to provide grounded, empathetic responses to mental health queries.
 
