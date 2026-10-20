@@ -1,4 +1,4 @@
-﻿---
+---
 title: SafeSpace AI Backend
 emoji: 🧠
 colorFrom: blue
@@ -7,9 +7,11 @@ sdk: docker
 pinned: false
 ---
 
-# Mental Health Support Chatbot with RAG
+# SafeSpace AI — Mental Health Support Chatbot (Backend)
 
-A chatbot trained on professional mental health counseling data and our own knowledge base (PDFs). Uses retrieval-augmented generation to provide grounded, empathetic responses to mental health queries.
+The FastAPI backend for **SafeSpace AI**, a multilingual mental health support chatbot. It detects the user's language, emotion and intent, screens every message for crisis signals, and answers mental health questions with retrieval-augmented generation: a Groq-hosted LLM (`llama-3.3-70b-versatile`) writes the reply, grounded in a Qdrant knowledge base built from professional counseling Q&A and mental health books (PDFs).
+
+The backend is deployed as a Docker Space on Hugging Face and serves the SafeSpace AI frontend Space.
 
 **⚠️ This is experimental.** Not a replacement for actual therapy or crisis intervention. Always escalate real emergencies.
 
@@ -18,24 +20,25 @@ A chatbot trained on professional mental health counseling data and our own know
 ## Quick Start
 
 ```bash
-# 1. Install dependencies
+# 1. Install dependencies (+ the project itself, so `src.*` imports resolve)
 pip install -r requirements.txt
+pip install -e .
 
 # 2. Prepare data (loads datasets, chunks PDFs)
-python scripts/00_prepare_data.py
+python scripts/prepare_data.py
 
 # 3. Train language detection + emotion classifier
-python scripts/01_train_language_detector.py
-# (emotion classifier trains on Kaggle GPU - see docs/SETUP.md)
+python scripts/train_language_detector.py
+python scripts/train_emotion_classifier.py   # BiLSTM, run on Kaggle GPU
 
 # 4. Setup RAG (indexes knowledge base to Qdrant)
-python scripts/03_setup_rag.py
+python scripts/setup_rag_pipeline.py
 
 # 5. Start the API
-uvicorn app.main:app --reload
+uvicorn src.api.app:app --reload
 
-# 6. Test it
-python scripts/04_test_pipeline.py
+# 6. Smoke-test the core models
+python main.py
 ```
 
 Open `http://localhost:8000/docs` for interactive API testing.
@@ -47,13 +50,14 @@ Open `http://localhost:8000/docs` for interactive API testing.
 ```
 User: "I'm anxious about work presentations"
      ↓
-[Language detection] → English
-[Emotion classifier] → Fear/Anxiety
-[Intent detection] → asking_mental_health_question
-[NER extraction] → symptoms: ["anxiety"], triggers: ["presentations", "work"]
+[Language detection] → English (no translation needed)
+[Emotion + Intent]   → fear  |  asking_mental_health_question
+[Safety check]       → no crisis signals → continue
+[NER extraction]     → symptoms: ["anxiety"], triggers: ["presentations", "work"]
 [Query optimization] → rewrite for better retrieval
-[Hybrid search] → BM25 keywords + semantic similarity
-[RAG generation] → Groq LLM generates response using retrieved chunks
+[HyDE]               → LLM drafts a hypothetical counsellor answer, used as the search query
+[Semantic search]    → top-4 chunks from Qdrant (all-MiniLM-L6-v2 embeddings)
+[RAG generation]     → Groq LLM replies using the chunks, emotion and session context
      ↓
 Bot: "I understand presentation anxiety is really challenging. 
       Here are evidence-based approaches: breathing techniques, 
@@ -65,82 +69,69 @@ Bot: "I understand presentation anxiety is really challenging.
 ## Key Features
 
 **Core NLP Modules**
-- Multi-language detection (20 languages via TF-IDF)
-- Emotion classification (DistilBERT fine-tuned on Kaggle GPU)
-- Intent routing (zero-shot with Groq LLM)
+- **Language detection**: TF-IDF + Logistic Regression over 20 languages (ar, bg, de, el, en, es, fr, hi, it, ja, nl, pl, pt, ru, sw, th, tr, ur, vi, zh); input is translated to English and replies are translated back
+- **Emotion classification**: custom BiLSTM trained on Kaggle GPU; 6 labels (anger, fear, joy, love, sadness, surprise)
+- **Intent classification**: zero-shot with the Groq LLM; 5 intents (`greeting`, `goodbye`, `gratitude`, `asking_mental_health_question`, `out_of_scope`) plus a crisis flag
+- **NER**: extracts symptoms, triggers, duration and severity, accumulated across the session
+- Optional LLM backends for language and emotion classification (see Environment)
+
+**Safety**
+- Every message passes a crisis guardrail: the intent classifier's crisis flag plus a tiered keyword/emotion safety check (`src/pipeline/safety_checks.py`)
+- High-severity crises skip RAG and get an immediate de-escalation reply with crisis resources
+- Medium-severity signals still get a normal answer, with helpline resources appended
+
+**Retrieval & Generation**
+- Query optimization + HyDE before retrieval, to bridge casual user wording and clinical knowledge-base language
+- Semantic search in Qdrant (HNSW, cosine, all-MiniLM-L6-v2)
+- Replies are conditioned on retrieved chunks, detected emotion and session context
+
+**Conversation Memory**
+- Per-process conversation history with optional LLM memory summarization
+- Saying goodbye returns a short summary of the session
 
 ---
 
 ## How It Works (System Overview)
 
+Step numbers match the comments in `src/api/routes/chat.py`.
+
 ```
-User Query
-    ↓
-┌─────────────────────────┐
-│  Language Detection     │ ← Detects input language
-└────────┬────────────────┘
-         ↓
-    [Is English?]
-         │
-      ┌──┴──┐
-      ↓     ↓
-     Yes    No
-      │     │
-      │     ↓
-      │  ┌──────────────────────┐
-      │  │ Translate to English │
-      │  └──────────┬───────────┘
-      │             ↓
-      └─────────────┘ (Translated Query)
-                ↓
-      ┌─────────────────────────┐
-      │  Intent Classification  │ ← Routes the request
-      └────────┬────────────────┘
-               ↓
-          [Intent type?]
-               │
-          ┌────┼────┬────┬─────┐
-          ↓    ↓    ↓    ↓     ↓
-       Greeting Goodbye Gratitude Mental_Health Out_of_Scope
-             │                │
-             ↓                ↓
-        Direct Response   RAG Pipeline
-                              │
-                      ┌───────┼───────┐
-                      ↓       ↓       ↓
-                     NER  Query-Rewrite Hybrid-Search
-                      │       │       │
-                      └───────┴───┬───┘
-                              ↓
-                      Retrieved Chunks
-                              │
-                      ┌───────┴────────┐
-                      ↓                ↓
-                     HyDE         LLM Generation
-                      │                │
-                      └────────┬───────┘
-                              ↓
-                      Final Response (English)
-                      + Sources
-                      + Context
-                              │
-                    [Was input non-English?]
-                              │
-                          ┌───┴────┐
-                          ↓        ↓
-                         Yes       No
-                          │        │
-                          ↓        │
-                   ┌──────────────────────┐
-                   │ Translate Response   │
-                   │ Back to Original     │
-                   │ Language             │
-                   └──────────┬───────────┘
-                              ↓
-                      Final Response
-                      + Sources
-                      + Context
-                      (in Original Language)
+User message
+    │
+    ▼
+1. Language detection ──── non-English? ──► 2. Translate to English
+    │                                              │
+    ◄──────────────────────────────────────────────┘
+    ▼
+3. Emotion classification  ║  Intent classification      (run in parallel)
+    │
+    ▼
+4. Safety check (keywords + emotion) + intent crisis flag
+    │
+    ├── crisis (high severity) ──► 5. De-escalation reply + crisis resources ──┐
+    │                                                                          │
+    ▼  intent?                                                                 │
+    ├── greeting / gratitude / out_of_scope ──► canned reply ──────────────────┤
+    ├── goodbye ──► farewell + session summary ────────────────────────────────┤
+    │                                                                          │
+    └── asking_mental_health_question                                          │
+          │                                                                    │
+          ▼                                                                    │
+        6. NER  ║  Query optimization          (parallel)                      │
+          ▼                                                                    │
+        7. HyDE: LLM drafts a hypothetical counsellor answer                   │
+          ▼                                                                    │
+        8. Semantic search in Qdrant (top-4 chunks)                            │
+          ▼                                                                    │
+        9. LLM generation (chunks + emotion + session context)                 │
+           + helpline resources if medium-severity signals                     │
+          │                                                                    │
+          ▼                                                                    │
+       10. Update conversation history / NER context ◄────────────────────────┘
+          ▼
+       11. Translate reply back to the user's language (if needed)
+          ▼
+       Response + metadata (language, emotion, intent, sources, is_crisis, context)
 ```
 
 ---
@@ -154,6 +145,14 @@ User Query
 GROQ_API_KEY=your_groq_key_here
 QDRANT_URL=https://your-instance.qdrant.io
 QDRANT_API_KEY=your_qdrant_key
+
+# Optional (see src/config.py)
+EMOTION_CLASSIFIER_BACKEND=model        # "model" (BiLSTM, default) | "llm"
+LANGUAGE_CLASSIFIER_BACKEND=model       # "model" (TF-IDF, default) | "llm"
+MEMORY_SUMMARIZATION_ENABLED=true
+GROQ_API_KEY_EMOTION_CLASSIFIER=...     # used when EMOTION_CLASSIFIER_BACKEND=llm
+GROQ_API_KEY_LANGUAGE_CLASSIFIER=...    # used when LANGUAGE_CLASSIFIER_BACKEND=llm
+GROQ_API_KEY_SUMMARIZER=...             # used for memory summarization
 ```
 
 Get keys:
@@ -169,16 +168,18 @@ Datasets auto-download from HuggingFace:
 - Mental health Q&A (17k professional counseling pairs)
 - Our PDFs from `data/raw/mental_health_books/`
 
-**Note on emotion classifier**: Fine-tuning was on Kaggle GPU for speed. See `docs/SETUP.md` for instructions to export the model locally.
+**Note on emotion classifier**: Training was on Kaggle GPU for speed (`config.py` detects Kaggle and adjusts paths). The trained weights, tokenizer and config are committed under `models/emotion_classifier/` via Git LFS.
 
 ---
 
 ## API Usage
 
+All routes are mounted under `/v1`.
+
 ### Chat Endpoint
 
 ```bash
-curl -X POST http://localhost:8000/chat \
+curl -X POST http://localhost:8000/v1/chat \
   -H "Content-Type: application/json" \
   -d '{"message": "I feel anxious about work"}'
 ```
@@ -187,27 +188,27 @@ Response:
 ```json
 {
   "response": "I understand work-related anxiety is really common...",
-  "emotion": "fear",
-  "language": "en",
-  "intent": "asking_mental_health_question",
-  "confidence_scores": {
-    "language": 0.98,
-    "emotion": 0.87,
-    "intent": 0.95
-  },
-  "sources": [
-    {"text": "anxiety management techniques...", "source": "mental_health_dataset"},
-    {"text": "breathing exercises for stress...", "source": "mental_health_books.pdf"}
-  ]
+  "metadata": {
+    "language": "en",
+    "emotion": "fear",
+    "intent": "asking_mental_health_question",
+    "confidence_scores": {"language": 0.98, "emotion": 0.87, "intent": 0.95},
+    "sources": [
+      {"chunk_text": "anxiety management techniques...", "source": "...", "section": "...", "confidence": 0.82}
+    ],
+    "is_crisis": false,
+    "context_accumulated": {
+      "symptoms": ["anxiety"], "triggers": ["work"], "duration": "", "severity": ""
+    }
+  }
 }
 ```
 
-### Feedback
+### Health
 
 ```bash
-curl -X POST http://localhost:8000/feedback \
-  -H "Content-Type: application/json" \
-  -d '{"conversation_id": "session_1", "helpful": true, "comment": "great advice"}'
+curl http://localhost:8000/v1/health          # liveness
+curl http://localhost:8000/v1/health/models   # runs a sample through every loaded model
 ```
 
 ---
@@ -216,8 +217,8 @@ curl -X POST http://localhost:8000/feedback \
 
 - **Not a therapist**: Responses are AI-generated from training data, not from licensed professionals. Always encourage users to seek real help.
 - **Knowledge base dependent**: Quality depends on your PDFs and the counseling dataset. Garbage in = garbage out.
-- **English-biased training**: Language detection works across 20 languages, but responses are English-only (for now).
-- **No real user data**: This is a proof-of-concept. No real conversation history, no user persistence.
+- **English-biased pipeline**: Non-English input is translated to English for retrieval and generation, then translated back, so quality depends on the translation step.
+- **No user persistence**: This is a proof-of-concept. Conversation history lives in memory in a single shared per-process manager; it is lost on restart and not separated per user.
 - **API rate limits**: Using free Groq tier (~30 req/min). Would need paid plan for production.
 
 ---
@@ -225,32 +226,48 @@ curl -X POST http://localhost:8000/feedback \
 ## Project Structure
 
 ```
-mental-health-chatbot/
-├── data/
-│   ├── raw/                          # Downloads + your PDFs
-│   ├── processed/                    # Cleaned data + chunks
-│   └── splits/                       # Train/val/test
+mental_health_chatbot/
+├── data/                             # Git-ignored; created by prepare_data.py
+│   ├── raw/mental_health_books/      # Your PDFs
+│   ├── processed/                    # emotion_{train,val,test}.csv, knowledge_base_combined.json
+│   └── splits/                       # train/ val/ test/
 ├── models/
-│   ├── language_detection/           # TF-IDF + LogisticRegression
-│   ├── emotion_classifier/           # DistilBERT (trained on Kaggle)
-│   └── rag_components/               # Config files
+│   ├── language_detection/           # TF-IDF + LogisticRegression (model.pkl, vectorizer.pkl)
+│   └── emotion_classifier/           # BiLSTM weights, tokenizer, config (Git LFS)
+├── configs/
+│   └── qdrant_config.yaml            # Qdrant connection, collection, HNSW, search settings
 ├── src/
-│   ├── modules/                      # Language, emotion, intent, RAG classes
-│   ├── utils/                        # Preprocessing, embeddings, vector DB, NER
-│   └── pipeline/                     # Orchestrator + safety checks
-├── app/
-│   └── main.py                       # FastAPI server
+│   ├── api/                          # FastAPI app
+│   │   ├── app.py                    # App, CORS, model loading at startup
+│   │   ├── dependencies.py
+│   │   ├── schemas.py                # Request/response models
+│   │   └── routes/                   # chat.py (/v1/chat), health.py (/v1/health)
+│   ├── config.py                     # Env-driven backend selection (model vs LLM)
+│   ├── language_detector/            # TF-IDF detector + LLM detector
+│   ├── language_translator/          # Groq-based translation
+│   ├── emotion_classifier/           # BiLSTM model, training, eval + LLM classifier
+│   ├── intent_classifier/            # Groq zero-shot intent + crisis flag
+│   ├── ner_extractor/                # Symptoms / triggers / duration / severity
+│   ├── rag_engine/
+│   ├── pipeline/                     # Legacy orchestrator + safety checks
+│   ├── prompts/                      # Prompt templates
+│   └── utils/                        # Embedder, vector DB, hybrid search, query optimizer,
+│                                     # conversation manager, memory summarizer, preprocessing
 ├── scripts/
-│   ├── 00_prepare_data.py
-│   ├── 01_train_language_detector.py
-│   ├── 03_setup_rag.py
-│   └── 04_test_pipeline.py
-├── notebooks/
-│   └── *.ipynb                       # Training + exploration
-└── docs/
-    ├── SETUP.md                      # Detailed setup
-    ├── API_DOCUMENTATION.md
-    └── ARCHITECTURE.md
+│   ├── prepare_data.py
+│   ├── train_language_detector.py
+│   ├── train_emotion_classifier.py
+│   ├── train_emotion_classifier_encoder.py
+│   ├── evaluate_emotion_classifier.py
+│   ├── setup_rag_pipeline.py
+│   └── test_intent_classifier.py
+├── notebooks/                        # Data loading, language detection, emotion classifier
+├── requirements/                     # base.txt, dev.txt
+├── config.py                         # Training paths/hyperparameters (Kaggle-aware)
+├── main.py                           # Local smoke test of intent/language/emotion models
+├── Dockerfile                        # HF Spaces image (uvicorn on port 7860)
+├── pyproject.toml
+└── requirements.txt
 ```
 
 ---
@@ -258,19 +275,18 @@ mental-health-chatbot/
 ## Testing
 
 ```bash
-# Run full pipeline test
-python scripts/04_test_pipeline.py
+# Smoke-test intent, language and emotion models
+python main.py
+
+# Intent classifier only
+python scripts/test_intent_classifier.py
 
 # Interactive testing
-uvicorn app.main:app --reload
-# Then visit http://localhost:8000/docs
+uvicorn src.api.app:app --reload
+# Then visit http://localhost:8000/docs, or GET /v1/health/models
 ```
 
-Test queries cover:
-- All 5 intent types (greeting, mental health Q, out of scope, etc.)
-- Multi-language input
-- Crisis detection
-- Multi-turn conversation
+The smoke test covers greetings, mental health questions, non-English input, out-of-scope questions, gratitude and crisis messages.
 
 ---
 
@@ -281,7 +297,7 @@ If you want to extend this:
 - **Better knowledge base**: Add more mental health PDFs or scrape legitimate resources
 - **Evaluation metrics**: Measure response quality, user satisfaction, crisis detection accuracy
 - **Fine-tuning the LLM**: Use Groq or another provider to fine-tune on your specific use case
-- **Deployment**: Docker + Kubernetes or serverless (AWS Lambda, etc.)
+- **Deployment**: Already ships as a Docker image for Hugging Face Spaces; could move to Kubernetes or serverless
 
 ---
 
@@ -302,9 +318,9 @@ This is an educational project. Don't use it as actual mental health treatment. 
 
 ---
 
-**Questions?** Check `docs/SETUP.md` for more detailed walkthroughs, or `docs/ARCHITECTURE.md` for technical deep dives.
-
 ## Tech stack
 
-Python · PyTorch · Hugging Face Transformers · pandas · scikit-learn · matplotlib · seaborn · Weights & Biases
+**Serving:** FastAPI · Uvicorn · Docker (Hugging Face Spaces)  
+**LLM & retrieval:** Groq (Llama 3.3 70B) · Qdrant · sentence-transformers (all-MiniLM-L6-v2) · rank_bm25 · Docling (PDF parsing) · spaCy  
+**ML & training:** PyTorch · scikit-learn · Hugging Face Datasets/Transformers · pandas · matplotlib · seaborn · Weights & Biases
 

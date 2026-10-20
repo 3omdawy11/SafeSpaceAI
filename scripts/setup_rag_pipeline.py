@@ -1,5 +1,5 @@
 """
-scripts/setup_rag.py
+scripts/setup_rag_pipeline.py
 ========================
 Phase 6: Index the knowledge base into Qdrant.
 
@@ -13,7 +13,7 @@ Steps
 6. Verify count and run test queries
 
 Run from project root:
-    python scripts/setup_rag.py
+    python scripts/setup_rag_pipeline.py
 
 Flags:
     --recreate    Delete and rebuild the collection from scratch
