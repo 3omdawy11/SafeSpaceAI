@@ -1,17 +1,8 @@
----
-title: SafeSpace AI Backend
-emoji: 🧠
-colorFrom: blue
-colorTo: green
-sdk: docker
-pinned: false
----
-
 # SafeSpace AI — Mental Health Support Chatbot (Backend)
 
 The FastAPI backend for **SafeSpace AI**, a multilingual mental health support chatbot. It detects the user's language, emotion and intent, screens every message for crisis signals, and answers mental health questions with retrieval-augmented generation: a Groq-hosted LLM (`llama-3.3-70b-versatile`) writes the reply, grounded in a Qdrant knowledge base built from professional counseling Q&A and mental health books (PDFs).
 
-The backend is deployed as a Docker Space on Hugging Face and serves the SafeSpace AI frontend Space.
+The backend runs as a Docker app (see `Dockerfile`) and serves the SafeSpace AI frontend.
 
 **⚠️ This is experimental.** Not a replacement for actual therapy or crisis intervention. Always escalate real emergencies.
 
